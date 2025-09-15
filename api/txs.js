@@ -1,21 +1,21 @@
 // /api/txs.js
 
 export default async function handler(req, res) {
-  // CORS Headers
-  res.setHeader('Access-Control-Allow-Origin', '*'); // Allow all origins
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Handle preflight OPTIONS request
+  // Handle preflight request
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // Extract and validate address
   const address = (req.query.address || "").toLowerCase().trim();
 
-  // Validate address
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return res.status(400).send("wrong");
+    return res.status(400).json({ error: 'Invalid or missing address' });
   }
 
   const apiKey = "GASGF2JMJHGTT42NG1QCH2VZAZW5FJVB9W";
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (data.status !== "1" || !Array.isArray(data.result)) {
-      return res.status(404).send("notfound");
+      return res.status(404).json({ error: 'Transactions not found' });
     }
 
     const txs = data.result;
@@ -69,6 +69,6 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   } catch (error) {
     console.error("Error:", error);
-    return res.status(500).send("wrong");
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }
