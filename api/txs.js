@@ -1,8 +1,16 @@
 // /api/txs.js
 
 export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS Origin Restriction
+  const allowedOrigin = 'https://my-warden-explorer.vercel.app';
+  const origin = req.headers.origin;
+
+  if (origin !== allowedOrigin) {
+    return res.status(403).json({ error: 'Forbidden: Origin not allowed' });
+  }
+
+  // Set CORS headers for allowed origin
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -11,7 +19,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extract and validate address
+  // Wallet address validation
   const address = (req.query.address || "").toLowerCase().trim();
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
