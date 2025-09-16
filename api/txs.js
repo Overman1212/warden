@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const total = txs.length - messari;
+    const total = deposits + withdrawals + swaps;
 
     const result = {};
     if (swaps > 0) result.swaps = swaps;
