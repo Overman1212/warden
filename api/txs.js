@@ -28,6 +28,8 @@ export default async function handler(req, res) {
 
   const apiKey = "GASGF2JMJHGTT42NG1QCH2VZAZW5FJVB9W";
   const chainId = 8453; // Base Mainnet
+  const messariAddress = "0x2847a369b2f886d5b5acfbb86dc4e1f5ca8869be";
+
   const url = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${apiKey}`;
 
   try {
@@ -46,7 +48,6 @@ export default async function handler(req, res) {
 
     const minMessari = BigInt("50000000000000");
     const maxMessari = BigInt("60000000000000");
-    const messariAddress = "0x2847a369b2f886d5b5acfbb86dc4e1f5ca8869be";
 
     for (const tx of txs) {
       const from = tx.from.toLowerCase();
@@ -60,50 +61,10 @@ export default async function handler(req, res) {
         deposits++;
       } else if (from === address && to !== address) {
         withdrawals++;
-        if (value >= minMessari && value <= maxMessari && to === messariAddress) {
+        if (to === messariAddress && value >= minMessari && value <= maxMessari) {
           messari++;
         }
       }
-    }
-
-    // Fetch token transfers for USDC check
-    const tokenTxUrl = `https://api.etherscan.io/api?module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${apiKey}`;
-    const tokenResponse = await fetch(tokenTxUrl);
-    const tokenData = await tokenResponse.json();
-
-    if (tokenData.status === "1" && Array.isArray(tokenData.result)) {
-      for (const tokenTx of tokenData.result) {
-        const tokenTo = tokenTx.to.toLowerCase();
-        const tokenFrom = tokenTx.from.toLowerCase();
-        const tokenAmount = tokenTx.value; // USDC has 6 decimals
-        const tokenSymbol = tokenTx.tokenSymbol;
-
-        if (
-          tokenFrom === address &&
-          tokenTo === messariAddress &&
-          tokenSymbol === "USDC" &&
-          tokenAmount === "250000" // 0.25 USDC (6 decimals)
-        ) {
-          messari++;
-        }
-      }
-    }
-
-    const total = txs.length - messari;
-
-    const result = {};
-    if (swaps > 0) result.swaps = swaps;
-    if (withdrawals > 0) result.withdrawals = withdrawals;
-    if (deposits > 0) result.deposits = deposits;
-    if (messari > 0) result.messari = messari;
-    if (total > 0) result.total = total;
-
-    return res.status(200).json(result);
-  } catch (error) {
-    console.error("Error:", error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}      }
     }
 
     const total = txs.length - messari;
