@@ -59,7 +59,9 @@ export default async function handler(req, res) {
       const from = tx.from.toLowerCase();
       const to = tx.to.toLowerCase();
       const value = BigInt(tx.value || "0");
-      const isSwap = tx.functionName?.toLowerCase().includes("swap"); // ✅ Only check for 'swap'
+      const functionName = tx.functionName?.toLowerCase() || "";
+
+      const isSwap = functionName.includes("swap");
 
       if (isSwap) {
         swaps++;
@@ -112,4 +114,4 @@ export default async function handler(req, res) {
     console.error("Error:", error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-    }
+}
