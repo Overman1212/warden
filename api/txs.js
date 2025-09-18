@@ -1,7 +1,6 @@
 // /api/txs.js
 
 export default async function handler(req, res) {
-  // CORS Origin Restriction
   const allowedOrigin = 'https://my-warden-explorer.vercel.app';
   const origin = req.headers.origin;
 
@@ -9,7 +8,6 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden: Origin not allowed' });
   }
 
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -24,7 +22,7 @@ export default async function handler(req, res) {
   }
 
   const apiKey = "GASGF2JMJHGTT42NG1QCH2VZAZW5FJVB9W";
-  const chainId = 8453; // Base Mainnet
+  const chainId = 8453; // Base
   const messariAddress = "0x2847a369b2f886d5b5acfbb86dc4e1f5ca8869be";
 
   const ethTxUrl = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=10000&sort=asc&apikey=${apiKey}`;
@@ -34,7 +32,7 @@ export default async function handler(req, res) {
     const ethResponse = await fetch(ethTxUrl);
     const ethData = await ethResponse.json();
     if (ethData.status !== "1" || !Array.isArray(ethData.result)) {
-      return res.status(404).json({ error: 'Transactions not found' });
+      return res.status(404).json({ error: 'ETH transactions not found' });
     }
 
     const tokenResponse = await fetch(tokenTxUrl);
@@ -48,21 +46,128 @@ export default async function handler(req, res) {
     const minMessari = BigInt("50000000000000");
     const maxMessari = BigInt("60000000000000");
 
-    // Known swap methodIds including the Universal Router's execute
     const knownSwapMethodIds = new Set([
-      "0xd0e30db0", // deposit() (ETH to WETH)
-      "0x2e1a7d4d", // withdraw() (WETH to ETH)
-      "0xb80c2f09", // smartSwapByOrderId
-      "0x3593564c", // execute(...) for commands, inputs, deadline
-      // Add more if you find others
+      "0xd0e30db0",  // deposit()
+      "0x2e1a7d4d",  // withdraw()
+      "0xb80c2f09",  // smartSwapByOrderId
+      "0x3593564c",  // execute(... commands etc)
+      // add more as you see them
     ]);
 
-    // To avoid double counting a single tx, track which tx hashes have been counted as swap already
     const swapTxHashes = new Set();
 
-    // Process ETH transactions
+    // ETH txs
     for (const tx of ethData.result) {
+      const txHash = tx.hash;
       const from = tx.from.toLowerCase();
+      const to = (tx.to || "").toLowerCase();
+      const methodId = (tx.methodId || "").toLowerCase();
+      const fnName = (tx.functionName || "").toLowerCase();
+      const input = tx.input || "";
+      const value = BigInt(tx.value || "0");
+      const isError = tx.isError === "1";
+
+      let isSwap = false;
+
+      // Check swap via methodId or functionName
+      if (fnName.includes("swap") 
+          || knownSwapMethodIds.has(methodId) 
+          || fnName.includes("execute(")
+          || fnName.includes("deposit(")  // maybe wrap
+          || fnName.includes("withdraw(")
+      ) {
+        isSwap = true;
+      }
+
+      if (isSwap) {
+        if (!swapTxHashes.has(txHash)) {
+          swaps++;
+          swapTxHashes.add(txHash);
+        }
+        // do not treat further as deposit/withdrawal
+      } else {
+        // Not swap: check ETH deposit
+        if (to === address && from !== address && value > 0n && !isError) {
+          deposits++;
+        }
+        // Not swap: check ETH withdrawal
+        else if (
+          from === address &&
+          to !== address &&
+          value > 0n &&
+          input === "0x" &&
+          !isError
+        ) {
+          withdrawals++;
+          if (to === messariAddress && value >= minMessari && value <= maxMessari) {
+            messari++;
+          }
+        }
+      }
+    }
+
+    // Token transactions
+    if (tokenData.status === "1" && Array.isArray(tokenData.result)) {
+      for (const tokenTx of tokenData.result) {
+        const txHash = tokenTx.hash;
+        const tokenFrom = tokenTx.from.toLowerCase();
+        const tokenTo = tokenTx.to.toLowerCase();
+        const methodIdToken = (tokenTx.methodId || "").toLowerCase();
+        const fnNameToken = (tokenTx.functionName || "").toLowerCase();
+        const rawValue = BigInt(tokenTx.value || "0");
+        const tokenSymbol = tokenTx.tokenSymbol;
+
+        let isTokenSwap = false;
+        if (fnNameToken.includes("swap") 
+            || knownSwapMethodIds.has(methodIdToken) 
+            || fnNameToken.includes("execute(")
+        ) {
+          isTokenSwap = true;
+        }
+
+        if (isTokenSwap) {
+          if (!swapTxHashes.has(txHash)) {
+            swaps++;
+            swapTxHashes.add(txHash);
+          }
+        } else {
+          // Not a swap token tx: deposit or withdrawal
+          if (tokenTo === address && tokenFrom !== address && rawValue > 0n) {
+            deposits++;
+          } else if (tokenFrom === address && tokenTo !== address && rawValue > 0n) {
+            withdrawals++;
+          }
+        }
+
+        // Messari via token transfers
+        const usdcTargetValue = BigInt("250000");
+        if (
+          tokenFrom === address &&
+          tokenTo === messariAddress &&
+          tokenSymbol === "USDC" &&
+          rawValue === usdcTargetValue
+        ) {
+          messari++;
+        }
+      }
+    }
+
+    const total = deposits + withdrawals + swaps;
+
+    const result = {};
+    if (swaps > 0) result.swaps = swaps;
+    if (withdrawals > 0) result.withdrawals = withdrawals;
+    if (deposits > 0) result.deposits = deposits;
+    if (messari > 0) result.messari = messari;
+    if (total > 0) result.total = total;
+
+    return res.status(200).json(result);
+
+  } catch (err) {
+    console.error("Error in handler:", err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+      }      const from = tx.from.toLowerCase();
       const to = (tx.to || "").toLowerCase();
       const value = BigInt(tx.value || "0");
       const methodId = (tx.methodId || "").toLowerCase();
