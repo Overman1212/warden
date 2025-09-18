@@ -54,40 +54,21 @@ export default async function handler(req, res) {
     const minMessari = BigInt("50000000000000");
     const maxMessari = BigInt("60000000000000");
 
-    // Known methodIds for swaps (add methodIds here as you find them)
-    const knownSwapMethodIds = new Set([
-      "0x7ff36ab5", // common Uniswap V2 swapExactETHForTokens
-      "0x38ed1739", // swapExactTokensForTokens
-      "0x18cbafe5", // swapExactTokensForETH
-      "0xb80c2f09", // your smartSwapByOrderId in example
-      // add more methodIds you see often
-    ]);
-
     // Process ETH transactions
     for (const tx of ethData.result) {
       const from = tx.from.toLowerCase();
-      const to = (tx.to || "").toLowerCase();
+      const to = tx.to.toLowerCase();
       const value = BigInt(tx.value || "0");
-      const methodId = (tx.methodId || "").toLowerCase();
-      const functionName = (tx.functionName || "").toLowerCase();
-
-      // isSwap: if functionName includes "swap" OR methodId matches known swap method
-      const isSwap = functionName.includes("swap") || knownSwapMethodIds.has(methodId);
+      const isSwap = tx.functionName?.toLowerCase().includes("swap") || (tx.input && tx.input !== "0x");
 
       if (isSwap) {
         swaps++;
       } else if (to === address && from !== address) {
         deposits++;
-      } else if (
-        from === address &&
-        to !== address &&
-        value > 0n &&
-        tx.input === "0x" &&
-        tx.isError === "0" &&
-        !isSwap
-      ) {
+      } else if (from === address && to !== address) {
         withdrawals++;
 
+        // ETH withdrawal to Messari address within value range counts as Messari
         if (to === messariAddress && value >= minMessari && value <= maxMessari) {
           messari++;
         }
@@ -97,12 +78,13 @@ export default async function handler(req, res) {
     // Process token transfers for USDC Messari counting
     if (tokenData.status === "1" && Array.isArray(tokenData.result)) {
       for (const tokenTx of tokenData.result) {
-        const tokenFrom = tokenTx.from.toLowerCase();
         const tokenTo = tokenTx.to.toLowerCase();
+        const tokenFrom = tokenTx.from.toLowerCase();
         const tokenSymbol = tokenTx.tokenSymbol;
+        const tokenDecimal = parseInt(tokenTx.tokenDecimal || "6", 10);
         const rawValue = BigInt(tokenTx.value || "0");
 
-        const usdcTargetValue = BigInt("250000"); // 0.25 USDC in 6 decimals
+        const usdcTargetValue = BigInt("250000"); // 0.25 USDC = 250,000 in 6 decimals
 
         if (
           tokenFrom === address &&
@@ -112,8 +94,6 @@ export default async function handler(req, res) {
         ) {
           messari++;
         }
-        
-        // Note: token transfers are NOT counted as swaps or withdrawals here
       }
     }
 
@@ -132,4 +112,4 @@ export default async function handler(req, res) {
     console.error("Error:", error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-                 }
+}
