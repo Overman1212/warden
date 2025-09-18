@@ -54,38 +54,89 @@ export default async function handler(req, res) {
     const minMessari = BigInt("50000000000000");
     const maxMessari = BigInt("60000000000000");
 
+    // Known methodIds for swaps (from your examples + commonly used ones)
+    const knownSwapMethodIds = new Set([
+      "0xd0e30db0", // your ETH → Token deposit (wrap/weth etc)
+      "0x2e1a7d4d", // your Token → ETH withdraw / unwrap
+      "0xb80c2f09", // smartSwapByOrderId you shared
+      // Add more if you see them in future, e.g. uniswap etc
+    ]);
+
     // Process ETH transactions
     for (const tx of ethData.result) {
       const from = tx.from.toLowerCase();
-      const to = tx.to.toLowerCase();
+      const to = (tx.to || "").toLowerCase();
       const value = BigInt(tx.value || "0");
-      const isSwap = tx.functionName?.toLowerCase().includes("swap") || (tx.input && tx.input !== "0x");
+      const methodId = (tx.methodId || "").toLowerCase();
+      const functionName = (tx.functionName || "").toLowerCase();
+      const input = tx.input || "";
+
+      // isSwap = if functionName has “swap” OR methodId in knownSwapMethodIds OR deposit()/withdraw()/unwrap etc from examples
+      let isSwap = false;
+
+      if (functionName.includes("swap")) {
+        isSwap = true;
+      } else if (knownSwapMethodIds.has(methodId)) {
+        isSwap = true;
+      }
+
+      // From your examples, deposit() (methodId 0xd0e30db0) you consider as ETH→token
+      // Withdraw (0x2e1a7d4d) as token→ETH
+      // We treat those as swaps as well (they are part of swap flow)
 
       if (isSwap) {
         swaps++;
       } else if (to === address && from !== address) {
+        // Incoming ETH, deposit
         deposits++;
-      } else if (from === address && to !== address) {
+      } else if (
+        from === address &&
+        to !== address &&
+        value > 0n &&
+        input === "0x" &&
+        tx.isError === "0"
+      ) {
+        // Pure ETH withdrawal
         withdrawals++;
 
-        // ETH withdrawal to Messari address within value range counts as Messari
         if (to === messariAddress && value >= minMessari && value <= maxMessari) {
           messari++;
         }
       }
     }
 
-    // Process token transfers for USDC Messari counting
+    // Process token transfers primarily for deposits/withdrawals and messari
     if (tokenData.status === "1" && Array.isArray(tokenData.result)) {
       for (const tokenTx of tokenData.result) {
-        const tokenTo = tokenTx.to.toLowerCase();
         const tokenFrom = tokenTx.from.toLowerCase();
+        const tokenTo = tokenTx.to.toLowerCase();
         const tokenSymbol = tokenTx.tokenSymbol;
-        const tokenDecimal = parseInt(tokenTx.tokenDecimal || "6", 10);
+        //const tokenDecimal = parseInt(tokenTx.tokenDecimal || "6", 10);
         const rawValue = BigInt(tokenTx.value || "0");
+        const methodIdToken = (tokenTx.methodId || "").toLowerCase();
+        const functionNameToken = (tokenTx.functionName || "").toLowerCase();
 
-        const usdcTargetValue = BigInt("250000"); // 0.25 USDC = 250,000 in 6 decimals
+        // If this tokenTx matches known swap (methodId or functionName), count it as swap rather than withdrawal or deposit
+        let isTokenSwap = false;
+        if (functionNameToken.includes("swap")) {
+          isTokenSwap = true;
+        } else if (knownSwapMethodIds.has(methodIdToken)) {
+          isTokenSwap = true;
+        }
 
+        if (isTokenSwap) {
+          swaps++;
+        } else {
+          // Not swap: decide deposit or withdrawal of tokens
+          if (tokenTo === address && tokenFrom !== address) {
+            deposits++;
+          } else if (tokenFrom === address && tokenTo !== address) {
+            withdrawals++;
+          }
+        }
+
+        // Special: messari via token transfers if applicable
+        const usdcTargetValue = BigInt("250000"); // example threshold
         if (
           tokenFrom === address &&
           tokenTo === messariAddress &&
@@ -107,9 +158,8 @@ export default async function handler(req, res) {
     if (total > 0) result.total = total;
 
     return res.status(200).json(result);
-
   } catch (error) {
     console.error("Error:", error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-}
+    }
